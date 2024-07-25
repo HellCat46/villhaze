@@ -9,10 +9,11 @@
 #include <sys/socket.h>
 #include "strings.h"
 void handleRequest(int*);
-struct Request* parseRequest(char* data);
+struct Request parseRequest(std::string data);
 void handleWebSocket(int* sockfd);
 int getStringLength(char* str);
-
+void upgradeToWebSocket(int* sockfd);
+void printRequest(struct Request request);
 
 struct Request {
 	std::string method, route, protocol, body;
@@ -76,16 +77,14 @@ void handleRequest(int* sockfd){
 			return;
 		}
 
-		// Parsing the Incoming Request
-		struct Request* request = parseRequest(buffer);
-		std::cout<<"Request Protocol: "<<request->protocol<<std::endl;
-		std::cout<<"Request Route: "<<request->route<<std::endl;
-		std::cout<<"Request Method: "<<request->method<<std::endl;
-		std::cout<<"Header Name: ";
-		for(auto header : request->headers){
-			std::cout<<header.first<<"="<<header.second<<std::endl;
+		for(auto buf: buffer){
+			std::cout<<(int) buf<<std::endl;
 		}
-		std::cout<<"\nRequest body: "<<request->body<<std::endl;
+		
+	
+		struct Request request = parseRequest(buffer);
+		//printRequest(request);
+		std::cout<<"ReqStart\n\n\n"<<request.body<<"\n\n\nReqEnd"<<std::endl;
 
 		if(write(*sockfd, "HTTP/1.1 200 OK\n\n", 17) < 0){
 			std::cout<<"Unable to read input steam of File Descriptor"<<*sockfd<<". Closing the connection"<<std::endl;
@@ -97,73 +96,54 @@ void handleRequest(int* sockfd){
 		std::cout<<"Connection Closed. File Descriptor:"<<*sockfd<<std::endl;
 }
 
-struct Request* parseRequest(char* data){
-	char line[8192];
-	int lineidx =0;
-	struct Request* request = new struct Request();
-
-	int linecount = 0, isBody = 0;
-	for(int idx =0; data[idx] != 0; idx++){
-		//std::cout<<(int) data[idx]<<std::endl;
-		if(data[idx] == 13) continue;
-
-		if(data[idx] == 10){
-			line[lineidx++] = '\0';
-			std::string li = line;
-			//std::cout<<line<<"\t Len:"<<getStringLength(line)<<std::endl;
-			
-			
-			if(isBody == 1){
-				request->body.append(li).append("\n");
-			}else if(linecount == 0){
-				std::string delimitor = " ";
-
-				request->method = li.substr(0, li.find(delimitor));
-				li.erase(0, li.find(delimitor)+1);
-				request->route = li.substr(0, li.find(delimitor));
-				li.erase(0, li.find(delimitor)+1);
-				request->protocol = li.substr(0, li.find(delimitor));
-			}else {
-				std::string delimitor = ":";
-
-				std::string header = li.substr(0, li.find(delimitor));
-				li.erase(0, li.find(delimitor)+1);
-				std::string value = li;
-
-				request->headers[header] = value;
-			}
-			linecount++;
-
-			if(data[idx+1] != 0){
-			bzero(&line, sizeof(line));
-			lineidx = 0;
-			}
-
-			if(data[idx+1] == 10 || data[idx+1] == 13){
-				isBody = 1;
-			}
-		}
-
-		line[lineidx++] = data[idx];
-	}
-
-	if(lineidx == 0) return request;
-
-	line[lineidx++] = '\0';
-	std::string li = line;
-	if(isBody != 1){
-		std::string delimitor = ":";
-		std::string header = li.substr(0, li.find(delimitor));
-		li.erase(0, li.find(delimitor)+1);
-		std::string value = li;
-		request->headers[header] = value;
-	}else {
-		request->body.append(li);
-	}
+struct Request parseRequest(std::string req){
+	struct Request request;
+	std::string delim = "\r\n";
 	
+
+	// Parses Important Data from First Line
+	request.method = req.substr(0, req.find(" "));
+	req.erase(0, req.find(" ")+1);
+	request.route = req.substr(0, req.find(" "));
+	req.erase(0, req.find(" ")+1);
+	request.protocol = req.substr(0, req.find(delim));
+	req.erase(0, req.find(delim)+delim.size());
+
+	// Parses Headers and Add them to Map
+	while(true){
+		std::string header = req.substr(0, req.find(":"));
+		req.erase(0, req.find(":")+1);
+		std::string value = req.substr(0, req.find(delim));
+		req.erase(0, req.find(delim)+delim.size());
+		request.headers[header] = value;
+
+		//std::cout<<header<<" |=| "<<value<<std::endl;
+		if(req.find("\r\n") == 0) break;
+	}
+
+	// Parses Body
+	req.erase(0, req.find(delim)+delim.length());
+	req.append("\0");
+
+	//std::cout<<req<<req.size()<<std::endl;
+	request.body = req;
+
 
 	return request;
 }
+
+void printRequest(struct Request request){
+	std::cout<<"Request Protocol: "<<request.protocol<<std::endl;
+	std::cout<<"Request Route: "<<request.route<<std::endl;
+	std::cout<<"Request Method: "<<request.method<<std::endl;
+	std::cout<<"Header Name: "<<std::endl;
+	for(auto header : request.headers){
+		std::cout<<header.first<<" |=| "<<header.second<<std::endl;
+	}
+	std::cout<<"\n\nRequest body: "<<request.body<<std::endl;
+}
+
+void upgradeToWebSocket(int* sockfd){}
 
 void handleWebSocket(int* sockfd){
 	char buffer[1024];
