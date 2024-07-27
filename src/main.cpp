@@ -1,5 +1,8 @@
 #include "unistd.h"
 #include "iostream"
+#include <algorithm>
+#include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <map>
@@ -8,12 +11,14 @@
 #include <string>
 #include <sys/socket.h>
 #include "strings.h"
+#include <openssl/sha.h>
 void handleRequest(int*);
 struct Request parseRequest(std::string data);
 void handleWebSocket(int* sockfd);
 int getStringLength(char* str);
-void upgradeToWebSocket(int* sockfd);
+void upgradeToWebSocket(int* sockfd, struct Request req);
 void printRequest(struct Request request);
+std::string getSHA1(std::string str);
 
 struct Request {
 	std::string method, route, protocol, body;
@@ -71,24 +76,25 @@ void handleRequest(int* sockfd){
 		std::cout<<"\n\n\nConnection Opened. File Descriptor:"<<*sockfd<<std::endl;
 
 		char buffer[1024];
+		bzero(buffer, sizeof(buffer));
 
 		if(read(*sockfd, buffer, sizeof(buffer)) < 0){
 			std::cout<<"Unable to read input steam of File Descriptor"<<*sockfd<<". Closing the connection"<<std::endl;
 			return;
-		}
-
-		for(auto buf: buffer){
-			std::cout<<(int) buf<<std::endl;
-		}
+		}		
 		
 	
 		struct Request request = parseRequest(buffer);
-		//printRequest(request);
-		std::cout<<"ReqStart\n\n\n"<<request.body<<"\n\n\nReqEnd"<<std::endl;
+		printRequest(request);
+		//std::cout<<"ReqStart\n\n\n"<<request.body<<"\n\n\nReqEnd"<<std::endl;
 
-		if(write(*sockfd, "HTTP/1.1 200 OK\n\n", 17) < 0){
-			std::cout<<"Unable to read input steam of File Descriptor"<<*sockfd<<". Closing the connection"<<std::endl;
-			return;
+		if(request.headers.find("Sec-WebSocket-Key") != request.headers.end()){
+			upgradeToWebSocket(sockfd,request);
+		}else{
+			if(write(*sockfd, "HTTP/1.1 200 OK\n\n", 17) < 0){
+				std::cout<<"Unable to read input steam of File Descriptor"<<*sockfd<<". Closing the connection"<<std::endl;
+				return;
+			}
 		}
 		
 
@@ -117,7 +123,7 @@ struct Request parseRequest(std::string req){
 		req.erase(0, req.find(delim)+delim.size());
 		request.headers[header] = value;
 
-		//std::cout<<header<<" |=| "<<value<<std::endl;
+		std::cout<<header<<" |=| "<<value<<std::endl;
 		if(req.find("\r\n") == 0) break;
 	}
 
@@ -143,7 +149,28 @@ void printRequest(struct Request request){
 	std::cout<<"\n\nRequest body: "<<request.body<<std::endl;
 }
 
-void upgradeToWebSocket(int* sockfd){}
+void upgradeToWebSocket(int* sockfd, struct Request req){
+	
+	std::string eol = "\r\n", res;
+	res.append("HTTP/1.1 101 Switching Protocols").append(eol);
+	res.append("Connection: Upgrade").append(eol);
+	res.append("Upgrade: websocket").append(eol);
+	res.append("Sec-WebSocket-Accept: ");
+
+	std::string key = req.headers.find("Sec-WebSocket-Key")->second; 
+
+	// Trimming Whitespaces from Start and End of String
+	key.erase(key.begin(), std::find_if(key.begin(), key.end(), [](unsigned char ch) { return  !std::isspace(ch);}));
+	key.erase(std::find_if(key.rbegin(), key.rend(), [](unsigned char ch) { return !std::isspace(ch);}).base(), key.end());
+
+	std::string value = key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+	std::cout<<"\nToken: "<<value<<std::endl;
+
+	std::string sha1Hashes = getSHA1(value);
+	std::cout<<"SHA1: "<<sha1Hashes<<std::endl;
+
+	res.append(eol).append(eol);
+}
 
 void handleWebSocket(int* sockfd){
 	char buffer[1024];
@@ -159,3 +186,21 @@ int getStringLength(char* str){
 
 	return len;
 }
+
+
+std::string getSHA1(std::string str){
+	unsigned char digest[SHA_DIGEST_LENGTH];
+//	char baseString[str.size()];
+
+//	strcpy(baseString, str.c_str());
+
+	SHA1((const unsigned char*) (str.c_str()), str.size(),(unsigned char*) &digest);
+
+	char hashes[SHA_DIGEST_LENGTH*2+1];
+
+	for(int idx=0; idx < SHA_DIGEST_LENGTH; idx++)
+		sprintf(&hashes[idx*2], "%02x", (unsigned int) digest[idx]);
+
+	return hashes;
+}
+
