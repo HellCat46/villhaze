@@ -81,8 +81,8 @@ void handleRequest(int* sockfd){
 		if(request.headers.find("Sec-WebSocket-Key") != request.headers.end()){
 
 			WebSocket ws = WebSocket(sockfd);
-			ws.upgradeToWebSocket(sockfd,request);
-			ws.handleWebSocket(sockfd);
+			ws.upgradeToWebSocket(request);
+			ws.handleWebSocket();
 		}else{
 			if(write(*sockfd, "HTTP/1.1 200 OK\n\n", 17) < 0){
 				std::cout<<"Unable to read input steam of File Descriptor"<<*sockfd<<". Closing the connection"<<std::endl;

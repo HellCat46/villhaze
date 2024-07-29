@@ -1,10 +1,14 @@
 #ifndef WEBSOCKET_H
 #define WEBSOCKET_H
 
+#include <bitset>
+#include <cstring>
+#include <ostream>
 #include <string>
 #include <openssl/sha.h>
 #include "Parsers/HTTPRequest.h"
 #include "Encoder/base64.h"
+#include <strings.h>
 #include <sys/socket.h>
 #include <iostream>
 #include <algorithm>
@@ -17,7 +21,7 @@ class WebSocket {
 		this->sockfd = sockfd;
 	}
 
-	void upgradeToWebSocket(int* sockfd, struct Request req){
+	int upgradeToWebSocket(struct Request req){
 		std::string eol = "\r\n", res;
 		res.append("HTTP/1.1 101 Switching Protocols").append(eol);
 		res.append("Connection: Upgrade").append(eol);
@@ -40,7 +44,8 @@ class WebSocket {
 
 		
 		unsigned char digest[SHA_DIGEST_LENGTH];
-		getSHA1(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11", digest);
+		key += "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+		SHA1((const unsigned char*) (key.c_str()), key.size(), digest);
 		res.append("Sec-WebSocket-Accept: ").append(getBase64((char*) digest, sizeof(digest)));
 		res.append(eol).append(eol);
 
@@ -48,30 +53,100 @@ class WebSocket {
 		//std::cout<<res;
 
 		
-		write(*sockfd, res.c_str(), res.size());
+		return write(*sockfd, res.c_str(), res.size());
 	}
 
-void handleWebSocket(int* sockfd){
-	char buffer[1024];
-	bzero(buffer,1024);
+	void handleWebSocket(){
+		char buffer[1024];
+		bzero(buffer,1024);
 
-	while(true){
-		if(read(*sockfd, buffer, sizeof(buffer)) < 0) break;
+		while(true){
+			if(receiveMessage(buffer, sizeof(buffer)) < 0){
+				break;
+			}
 
-		std::cout<<"Message Received:"<<buffer<<std::endl;
+			std::cout<<"Message Received:"<<buffer<<std::endl;
 
-		if(write(*sockfd, "Message Received", 16) < 0){
-			std::cout<<"Failed to send message to the Sender";
+			//if(write(*sockfd, "Message Received", 16) < 0){
+			//std::cout<<"Failed to send message to the Sender";
+			//}
 		}
 	}
+	
+	// Decodes the Message
+	int receiveMessage(char* msg,int len){
+		std::string err;
+		char data[len+14];
+		bzero(data, sizeof(data));
 
-}
-	private:
-		
-	void getSHA1(std::string str, unsigned char* digest){
+		if(read(*sockfd, data, sizeof(data)) < 0){
+			return -1;
+		}
 
-		SHA1((const unsigned char*) (str.c_str()), str.size(), digest);
+		// Checking for message specs using first byte
+		if((data[0] & 0b10000000) == 0) err += "Frames are not support. ";
+		if((data[0] & 0b01110000) != 0) err += "No Extensions are negotiated upon. ";
+		if((data[0] & 0b00000001) == 0)	err += "Only Text Message are supported. ";
+
+		if(err.size() > 0){
+			//write(*sockfd, data, data.size()); 
+			return -1;
+		}
+
+
+
+		unsigned long msgLen;
+		int strtbytes;
+		char msgLenCh[8];
+
+
+		// Checking size of message and mask status
+		switch (data[1] & 0b01111111) {
+			case 126: 
+				msgLen = std::stoi(std::bitset<8>(data[2]).to_string() + std::bitset<8>(data[3]).to_string(), nullptr, 2);
+				strtbytes=4;
+				break;
+			case 127: {
+					std::string bytes;
+					for(int idx = 2; idx < 10;idx++){
+						bytes.append(std::bitset<8>(data[idx]).to_string());
+					}
+					msgLen = std::stoi(bytes);
+					strtbytes=10;
+					break;
+				}
+			default: msgLen = data[1] & 0b01111111;
+				strtbytes=2;
+		}
 		
+
+		if((data[1] & 0b10000000) != 128){
+			err = "Unmasked messages should not be used in Production.";
+			if(write(*sockfd, err.c_str(), err.size()) < 0){
+				return -1;
+			}
+
+			for(int idx = 0; idx < sizeof(data)-strtbytes;idx++){
+				msg[idx] = data[idx+strtbytes];
+			}
+			return 1;
+		}
+
+		char masked[4]; 
+		for(int idx = 0; idx < 4; idx++){
+			masked[idx] = data[idx+strtbytes];
+		}
+
+		strtbytes+=4;
+
+
+		int msgIdx = 0;
+		for(int idx= strtbytes; idx < sizeof(data) && data[idx] != 0;idx++){
+			msg[msgIdx] = data[idx] ^ masked[msgIdx%4];
+			msgIdx++;
+		}
+
+		return 1;
 	}
 };
 
