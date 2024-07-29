@@ -58,18 +58,21 @@ class WebSocket {
 
 	void handleWebSocket(){
 		char buffer[1024];
-		bzero(buffer,1024);
 
 		while(true){
+			bzero(buffer,1024);
 			if(receiveMessage(buffer, sizeof(buffer)) < 0){
 				break;
 			}
 
 			std::cout<<"Message Received:"<<buffer<<std::endl;
 
-			//if(write(*sockfd, "Message Received", 16) < 0){
-			//std::cout<<"Failed to send message to the Sender";
-			//}
+
+			bzero(buffer,1024);
+			buffer = "Message Received";
+			if(sendMessage("Message Received", 16) < 0){
+				std::cout<<"Failed to send message to the Sender";
+			}
 		}
 	}
 	
@@ -141,12 +144,56 @@ class WebSocket {
 
 
 		int msgIdx = 0;
-		for(int idx= strtbytes; idx < sizeof(data) && data[idx] != 0;idx++){
+		for(int idx= strtbytes; idx < msgLen+strtbytes && idx < sizeof(data);idx++){
 			msg[msgIdx] = data[idx] ^ masked[msgIdx%4];
 			msgIdx++;
 		}
 
 		return 1;
+	}
+
+	int sendMessage(char* msg, unsigned long msgLen){
+		unsigned char data[14+msgLen]; 
+
+
+		// Sets Fin, RSV1, RSV2, RSV3 and Opcode
+		data[0] = 0b10000001;
+		
+		// Sets Mask Bit
+		data[1] = 0;
+
+		// Set the length of message
+		int strtbits;
+		if(msgLen < 126){ 
+			data[1] += msgLen;
+
+			strtbits = 2;
+		}else if(msgLen < 65536){ 
+			data[1] += 126;
+
+			std::string len = std::bitset<16>(msgLen).to_string();
+			data[2] = std::stoi(len.substr(0,8), nullptr, 2);
+			data[3] = std::stoi(len.substr(0,8), nullptr, 2);
+			strtbits = 4;
+		}else if(msgLen < 18446744073709551615) {
+			data[1] += 127;
+
+			std::string len = std::bitset<64>(msgLen).to_string();
+			for(int idx = 0; idx < 8;idx++){
+				data[1+idx+1] = std::stoi(len.substr(idx*8, 8), nullptr, 2);
+			}
+			strtbits = 10;
+		}else{
+			return -1;
+		}
+
+
+		for(int idx=0; idx < msgLen;idx++){
+			data[strtbits++] = msg[idx];
+		}
+
+
+		return write(*sockfd, data, strtbits);	
 	}
 };
 
