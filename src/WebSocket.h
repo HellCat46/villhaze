@@ -69,7 +69,6 @@ class WebSocket {
 
 
 			bzero(buffer,1024);
-			buffer = "Message Received";
 			if(sendMessage("Message Received", 16) < 0){
 				std::cout<<"Failed to send message to the Sender";
 			}
