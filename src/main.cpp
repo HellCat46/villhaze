@@ -10,6 +10,7 @@
 #include <sys/socket.h>
 #include "strings.h"
 #include <openssl/sha.h>
+#include <thread>
 #include "Parsers/HTTPRequest.h"
 #include "WebSocket.h"
 void handleRequest(int*);
@@ -52,24 +53,30 @@ int main(int argc, char *argv[]){
 
 	unsigned int clilen = sizeof(cli_addr);
 
+	std::thread threads[std::thread::hardware_concurrency()*62];
+	int tcount =0;
+
 	while(true) {
 		int newsockfd = accept(sockfd, (struct sockaddr*) &serv_addr, &clilen);
-		handleRequest(&newsockfd);
+		//std::thread rawr_thread(handleRequest,&newsockfd);
+		threads[tcount++] = std::thread(handleRequest,&newsockfd);
 	}
 }
 
-void handleRequest(int* sockfd){
-		if(*sockfd < 0){
-			std::cout<<"Failed to accept a connection";
-			exit(0);
-		}
-		std::cout<<"\n\n\nConnection Opened. File Descriptor:"<<*sockfd<<std::endl;
+void handleRequest(int* newsockfd){
+	int sockfd = *newsockfd;
+
+	if(sockfd < 0){
+		std::cout<<"Failed to accept a connection";
+		exit(0);
+	}
+		std::cout<<"\n\n\nConnection Opened. File Descriptor:"<<sockfd<<std::endl;
 
 		char buffer[1024];
 		bzero(buffer, sizeof(buffer));
 
-		if(read(*sockfd, buffer, sizeof(buffer)) < 0){
-			std::cout<<"Unable to read input steam of File Descriptor"<<*sockfd<<". Closing the connection"<<std::endl;
+		if(read(sockfd, buffer, sizeof(buffer)) < 0){
+			std::cout<<"Unable to read input steam of File Descriptor"<<sockfd<<". Closing the connection"<<std::endl;
 			return;
 		}		
 		
@@ -80,19 +87,19 @@ void handleRequest(int* sockfd){
 
 		if(request.headers.find("Sec-WebSocket-Key") != request.headers.end()){
 
-			WebSocket ws = WebSocket(sockfd);
+			WebSocket ws = WebSocket(&sockfd);
 			ws.upgradeToWebSocket(request);
 			ws.handleWebSocket();
 		}else{
-			if(write(*sockfd, "HTTP/1.1 200 OK\n\n", 17) < 0){
-				std::cout<<"Unable to read input steam of File Descriptor"<<*sockfd<<". Closing the connection"<<std::endl;
+			if(write(sockfd, "HTTP/1.1 200 OK\n\n", 17) < 0){
+				std::cout<<"Unable to read input steam of File Descriptor"<<sockfd<<". Closing the connection"<<std::endl;
 				return;
 			}
 		}
 		
 
-		close(*sockfd);
-		std::cout<<"Connection Closed. File Descriptor:"<<*sockfd<<std::endl;
+		close(sockfd);
+		std::cout<<"Connection Closed. File Descriptor:"<<sockfd<<std::endl;
 }
 
 void printRequest(struct Request request){
