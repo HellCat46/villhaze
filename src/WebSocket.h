@@ -17,22 +17,23 @@ class WebSocket {
 	int* sockfd;
 
 	public:
-	WebSocket(int* sockfd){
+	explicit WebSocket(int* sockfd){
 		this->sockfd = sockfd;
 	}
 
-	int upgradeToWebSocket(struct Request req){
-		std::string eol = "\r\n", res;
+	ssize_t upgradeToWebSocket(const Request* req) const {
+		const std::string eol = "\r\n";
+		std::string res;
 		res.append("HTTP/1.1 101 Switching Protocols").append(eol);
 		res.append("Connection: Upgrade").append(eol);
 		res.append("Upgrade: websocket").append(eol);
 
 
-		std::string key = req.headers.find("Sec-WebSocket-Key")->second; 
+		std::string key = req->headers.find("Sec-WebSocket-Key")->second;
 
 		// Trimming Whitespaces from Start and End of String
-		key.erase(key.begin(), std::find_if(key.begin(), key.end(), [](unsigned char ch) { return  !std::isspace(ch);}));
-		key.erase(std::find_if(key.rbegin(), key.rend(), [](unsigned char ch) { return !std::isspace(ch);}).base(), key.end());
+		key.erase(key.begin(), std::find_if(key.begin(), key.end(), [](const unsigned char ch) { return  !std::isspace(ch);}));
+		key.erase(std::find_if(key.rbegin(), key.rend(), [](const unsigned char ch) { return !std::isspace(ch);}).base(), key.end());
 
 		//std::string value = key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 		//std::cout<<"\nToken: "<<value<<std::endl;
@@ -45,8 +46,8 @@ class WebSocket {
 		
 		unsigned char digest[SHA_DIGEST_LENGTH];
 		key += "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-		SHA1((const unsigned char*) (key.c_str()), key.size(), digest);
-		res.append("Sec-WebSocket-Accept: ").append(getBase64((char*) digest, sizeof(digest)));
+		SHA1(reinterpret_cast<const unsigned char*>(key.c_str()), key.size(), digest);
+		res.append("Sec-WebSocket-Accept: ").append(getBase64(reinterpret_cast<char *>(digest), sizeof(digest)));
 		res.append(eol).append(eol);
 
 
@@ -56,7 +57,7 @@ class WebSocket {
 		return write(*sockfd, res.c_str(), res.size());
 	}
 
-	void handleWebSocket(){
+	void handleWebSocket() const{
 		char buffer[1024];
 
 		while(true){
@@ -68,7 +69,6 @@ class WebSocket {
 			std::cout<<"Message Received:"<<buffer<<std::endl;
 
 
-			bzero(buffer,1024);
 			if(sendMessage("Message Received", 16) < 0){
 				std::cout<<"Failed to send message to the Sender";
 			}
@@ -76,7 +76,7 @@ class WebSocket {
 	}
 	
 	// Decodes the Message
-	int receiveMessage(char* msg,int len){
+	int receiveMessage(char* msg, const int len) const{
 		std::string err;
 		char data[len+14];
 		bzero(data, sizeof(data));
@@ -90,7 +90,7 @@ class WebSocket {
 		if((data[0] & 0b01110000) != 0) err += "No Extensions are negotiated upon. ";
 		if((data[0] & 0b00000001) == 0)	err += "Only Text Message are supported. ";
 
-		if(err.size() > 0){
+		if(!err.empty()){
 			//write(*sockfd, data, data.size()); 
 			return -1;
 		}
@@ -99,7 +99,6 @@ class WebSocket {
 
 		unsigned long msgLen;
 		int strtbytes;
-		char msgLenCh[8];
 
 
 		// Checking size of message and mask status
@@ -144,14 +143,14 @@ class WebSocket {
 
 		int msgIdx = 0;
 		for(int idx= strtbytes; idx < msgLen+strtbytes && idx < sizeof(data);idx++){
-			msg[msgIdx] = data[idx] ^ masked[msgIdx%4];
+			msg[msgIdx] = static_cast<char>(data[idx] ^ masked[msgIdx%4]);
 			msgIdx++;
 		}
 
 		return 1;
 	}
 
-	int sendMessage(char* msg, unsigned long msgLen){
+	ssize_t sendMessage(const char* msg, const unsigned long msgLen) const{
 		unsigned char data[14+msgLen]; 
 
 

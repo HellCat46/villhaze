@@ -6,7 +6,10 @@ find_package(OpenSSL REQUIRED)
 set(CMAKE_XXX_STANDARD 11)
 
 add_executable(villhaze
-	src/main.cpp
+		src/Encoder/base64.h
+		src/Parsers/HTTPRequest.h
+		src/WebSocket.h
+		src/main.cpp
 )
 
 target_link_libraries(villhaze OpenSSL::SSL OpenSSL::Crypto)

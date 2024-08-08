@@ -2,27 +2,30 @@
 #define BASE64_H
 
 #include <string>
-#include <string.h>
 #include <bitset>
 
 
 
 // Function take an integer value and convert into alphabet 
 // according to the RFC 4648 Table used for Base64 Encoding
-char rfc4648Convertor(int indx){
+char rfc4648Convertor(const int indx){
 	if(indx<26){
-		return 65+indx;
-	}else if(indx<52){
-		return 97+(indx-26);
-	}else if(indx<62){
-		return indx-4;
-	}else if(indx == 62) return '+';
-	else if (indx == 63) return '/';
-	else return -1;
+		return static_cast<char>(65+indx);
+	}
+	if(indx<52){
+		return static_cast<char>(97+(indx-26));
+	}
+	if(indx<62){
+		return static_cast<char>(indx-4);
+	}
+	if(indx == 62) return '+';
+	if (indx == 63) return '/';
+
+	return -1;
 }
 
-std::string getBase64(char* input, int length){
-	std::string tbytes, enString = "";
+std::string getBase64(const char* input, const int length){
+	std::string tbytes, enString;
 	char bytes[7];
 	
 
@@ -31,7 +34,7 @@ std::string getBase64(char* input, int length){
 
 	// Create sextets from the bits of data and convert into base64
 	for(int idx = 0; idx < length; idx++){
-		int iidx =0;
+		int iidx;
 		if(remain_bits > 0){
 			//std::cout<<tbytes;
 			iidx = 8-remain_bits;
